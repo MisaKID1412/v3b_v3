@@ -1,0 +1,20 @@
+name: source-integrity
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  package-integrity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Check shell entry points
+        run: |
+          bash -n run_from_images.sh
+          bash -n restart_fullface_native_pipeline/scripts/run_new_dataset_full_pipeline_2080.sh
+      - name: Check frozen source and publication hygiene
+        run: python -m unittest -v tests.test_package_integrity

@@ -1,0 +1,10 @@
+numpy>=1.24,<3
+Pillow>=9.5,<13
+opencv-python-headless>=4.8,<5
+scipy>=1.10,<2
+matplotlib>=3.7,<4
+shapely>=2,<3
+trimesh>=4,<5
+pygltflib>=1.16,<2
+omegaconf>=2.3,<3
+tqdm>=4.66,<5

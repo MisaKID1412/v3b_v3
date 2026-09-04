@@ -1,0 +1,13 @@
+config/v3b.env
+config/local*.env
+outputs/
+.cache/
+tmp/
+__pycache__/
+*.pyc
+*.log
+*.unitypackage
+models/
+checkpoints/
+.DS_Store
+dist/
