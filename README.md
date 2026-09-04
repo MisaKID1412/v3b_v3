@@ -1,41 +1,110 @@
-# v3b_v3
+<h1 align="center">V3B: Qualified Evidence Provenance for Empty-Room Reconstruction with Multi-Material PBR Atlases</h1>
 
-`v3b_v3` is the complete, single-path pipeline used by the accepted three-room
-regression.  The public input is a directory of overlapping room photographs;
-the final outputs are a Unity-ready asset directory and an importable
-`.unitypackage`.
+<p align="center">
+  Research code for the IEEE VR submission<br>
+  <strong>Furnished RGB photographs → editable empty-room mesh + multi-material PBR atlases</strong>
+</p>
 
-The repository contains the orchestration and reconstruction/material code. It
-does **not** redistribute datasets, third-party repositories, or model weights.
-Configure those external dependencies before the first run.
+<p align="center">
+  <a href="https://github.com/MisaKID1412/v3b_v3/actions/workflows/source-integrity.yml"><img src="https://github.com/MisaKID1412/v3b_v3/actions/workflows/source-integrity.yml/badge.svg" alt="Source integrity checks"></a>
+</p>
 
-The tested path targets Linux with an NVIDIA CUDA GPU. An 11 GiB RTX 2080 Ti
-is supported through the automatic DA3 low-memory path; more VRAM is useful for
-rooms with many source views. Keep several gigabytes of free disk space per
-room: intermediate depth, masks, projected atlases, and audit artifacts are
-retained so an interrupted run can be resumed and its decisions inspected.
+<p align="center">
+  <a href="#overview">Overview</a> ·
+  <a href="#method">Method</a> ·
+  <a href="#quick-start">Quick start</a> ·
+  <a href="docs/GETTING_STARTED.md">Run &amp; Unity import</a> ·
+  <a href="#citation">Citation</a>
+</p>
 
-## What is fixed in v3b_v3
+## Overview
 
-- One pipeline is used for every room. There are no L-room, Structure3D,
-  face-name, fixed-corner-count, or fixed-material-count routes.
-- Lab clustering only proposes fine spatial regions. It never decides that two
-  regions are the same material.
-- MatSeg is used only for same/different material identity. Its primary evidence
-  is measured in reverse-projected original photographs; a contact-sheet pass
-  only resolves the documented two-singleton ambiguity.
-- Each material is selected by maximum atlas projection mass, traced back to an
-  original image, geometrically rectified, and passed to unchanged CHORD.
-- Every 512x512 trace-back input is inferred with the same CHORD configuration
-  at its original size. Outputs from different inference sizes are never mixed.
-- The accepted v1 layout backend expands each material into a whole territory.
-  PBR synthesis preserves the measured texture scale and does not use a fixed
-  tile grid or rectangular patch cut-and-paste.
-- BaseColor, normal, roughness, and metallic use the same spatial mapping.
+**V3B reconstructs an editable empty room from overlapping photographs of a furnished room.**
+Its output is an explicit floor, ceiling, and wall mesh with per-surface
+BaseColor, normal, roughness, and metallic atlases, ready for Unity import,
+relighting, and material editing.
 
-## Input contract
+The central idea is **Qualified Evidence Provenance (QEP)**: qualify the
+observations used for reconstruction, retain their source-image provenance,
+and keep generated completion subordinate to visible evidence. A plausible
+inpainted region must not become evidence for a new material.
 
-Create a dataset directory containing:
+<p align="center">
+  <a href="docs/assets/pipeline.png"><img src="docs/assets/pipeline.png" width="100%" alt="V3B pipeline: multi-view RGB input, object segmentation and point-cloud reconstruction, floorplan prediction, qualified atlas projection, source-image material trace-back, PBR estimation, label-context inpainting, material composition, and an editable empty-room output."></a>
+</p>
+
+*Pipeline overview. Admitted observations retain their source views. Material
+regions trace back to rectified source patches for PBR estimation; visible
+evidence determines material identity, while completion supports its extension
+into unseen regions. Click the figure for the full-resolution image.*
+
+## Method
+
+QEP separates three questions:
+
+1. **Which observations are trustworthy?** Semantic rejection masks and
+   geometric/projection checks qualify permanent-surface observations before
+   they contribute to the atlas.
+2. **Where did a material estimate come from?** Contribution records connect
+   atlas support to the original photographs. Material estimation uses a
+   geometrically rectified source patch, not an untraceable fused atlas crop.
+3. **What is generated content allowed to decide?** Visible evidence determines
+   material identities and exemplars. Inpainting supplies lower-authority
+   context for extending material territories, not new identities or final
+   baked RGB textures.
+
+### Implementation in this release
+
+The public `v3b_v3` runner uses one image-to-Unity path across rooms:
+
+- **Geometry and admitted observations:** DA3, RoomFormer, and SAM 3 supply
+  depth/camera evidence, layout proposals, and reject masks.
+- **Material identity:** fine appearance proposals are resolved with MatSeg
+  same/different-material evidence from reverse-projected original views.
+  Lab proposals alone do not decide material identity.
+- **Trace-back and PBR:** each surviving material is selected by maximum atlas
+  projection mass, traced to an original image, rectified, and inferred by
+  unchanged CHORD with one configuration.
+- **Territories and texture scale:** the layout backend infers material
+  territories, and footprint-aware whole-territory synthesis expands the
+  exemplars without a fixed tile grid or rectangular patch cut-and-paste.
+  Network input resolution is not treated as physical texture coverage.
+- **Aligned export:** all four PBR channels share material boundaries and
+  spatial mapping; the exporter also packs metallic/smoothness for Unity.
+
+Selection rules do not branch on room names, surface names, an L-shaped
+layout, or a fixed material count. This is a generalization design, not a
+guarantee that every unseen room or material will reconstruct correctly.
+
+The figure shows conceptual processing stages; the runner groups the work
+into eight execution stages. See the [pipeline contract](docs/PIPELINE.md)
+for the exact current implementation and its safeguards.
+
+## Quick start
+
+### 1. Get the code
+
+```bash
+git clone https://github.com/MisaKID1412/v3b_v3.git
+cd v3b_v3
+```
+
+### 2. Prepare the environment and input
+
+The tested runtime is **Linux + an NVIDIA CUDA GPU**. The low-memory DA3 path
+supports an 11 GiB RTX 2080 Ti; runtime and memory needs depend on the input.
+
+Install the external repositories and checkpoints listed in
+[THIRD_PARTY.md](THIRD_PARTY.md), then configure their local paths:
+
+```bash
+python -m pip install -r requirements-runtime.txt
+cp config/v3b.env.example config/v3b.env
+```
+
+Edit `config/v3b.env` to set the dataset, Python environments, model repositories,
+and checkpoints. Separate environments are recommended for the external models;
+the requirements file alone does not install them.
 
 ```text
 my_room/
@@ -45,91 +114,108 @@ my_room/
     ...
 ```
 
-Optional files:
+A COLMAP model is not required by the default DA3-aligned path. Known-camera
+metadata and compatible cached DA3 outputs are optional; see
+[the input contract](docs/GETTING_STARTED.md#input-contract).
 
-- `camera_metadata.json` for known same-center cameras, including panorama-derived synthetic views.
-- `existing_da3/results.npz`, `existing_da3/scene.glb`, and
-  `existing_da3/camera_poses.json` to reuse a compatible DA3 inference.
-
-A COLMAP model is optional. The default DA3-aligned projection path does not
-require one.
-
-The optional known-camera schema is documented in
-[docs/CAMERA_METADATA.md](docs/CAMERA_METADATA.md).
-
-## Setup
-
-1. Install the external components listed in [THIRD_PARTY.md](THIRD_PARTY.md).
-2. Install the ordinary runtime libraries in the reconstruction environment:
-
-   ```bash
-   python -m pip install -r requirements-runtime.txt
-   ```
-
-3. Copy `config/v3b.env.example` to `config/v3b.env`.
-4. Set the dataset, Python-environment, repository, and checkpoint paths.
-
-Separate Python environments are recommended because DA3, RoomFormer, SAM3,
-MatSeg, CHORD, and LaMa have conflicting dependencies.
-
-## Run
+### 3. Reconstruct and export
 
 ```bash
 bash run_from_images.sh
 ```
 
-To use a config outside the repository:
+Resume an interrupted run with:
 
 ```bash
-CONFIG_FILE=/absolute/path/to/room.env bash run_from_images.sh
+RESUME=1 bash run_from_images.sh
 ```
 
-Interrupted jobs can be continued without replacing completed stages:
+Outputs are written under `outputs/<RUN_NAME>/`:
+
+| Output | Contents |
+|---|---|
+| `pbr_full_normalized/` | Per-face PBR maps, previews, and scale/lattice audits |
+| `unity_project/` | OBJ/MTL, textures, packed metallic/smoothness, and Editor importer |
+| `v3b_v3.unitypackage` | Importable Unity asset package |
+| `v3b_v3_end_to_end_manifest.json` | Hash-linked provenance from inputs to export |
+
+In Unity, use **Assets → Import Package → Custom Package** and select the
+generated `.unitypackage`. The included importer creates per-face materials
+and `room_pbr.prefab`; setup can be rerun via **Tools → v3b_v3 → Apply PBR**.
+See [the full run and import guide](docs/GETTING_STARTED.md) for shader support,
+custom configurations, stage controls, and intermediate audit files.
+
+## Release scope and reproducibility
+
+This repository contains the end-to-end reconstruction code, configuration
+template, provenance/audit utilities, Unity exporter, and source-integrity
+tests. **It is not yet an experiment-complete reproduction bundle for every
+result in the submission.**
+
+The manuscript describes additional estimator replacements, candidate-selection
+experiments, texture-extension variants, and evaluation protocols. These are
+not all exposed by the current runner. For the released MatSeg identity path
+and whole-territory synthesis behavior, the
+[pipeline contract](docs/PIPELINE.md) is the version-specific reference.
+
+Datasets, model weights, generated room results, and the submission PDF are
+not included. The pipeline figure is an overview, not a downloadable
+regression-output bundle. Upstream revisions, checkpoint fingerprints, and
+tested environment versions are recorded in [THIRD_PARTY.md](THIRD_PARTY.md).
+
+CHORD caches are reused only when the complete input-image SHA-256 matches
+and every required output is present. Run the lightweight source checks with:
 
 ```bash
-RESUME=1 CONFIG_FILE=/absolute/path/to/room.env bash run_from_images.sh
+bash check_release.sh
 ```
 
-The eight stages are `frontend_reconstruction`, `unified_proposals`,
-`material_identity_traceback`, `chord_pbr`, `material_layout`, `territory_pbr`,
-`unity_project`, and `unitypackage`. `RUN_FROM` and `RUN_UNTIL` may delimit a
-diagnostic or resumed run.
+These checks cover frozen algorithm hashes, script closure, source hygiene,
+and Unity archive construction. They do **not** run the GPU reconstruction or
+establish the paper's quantitative results.
 
-## Outputs
+## Limitations
 
-Under `outputs/<RUN_NAME>/`:
+- Geometry assumes a planar, Manhattan-style room shell; curved walls and
+  arbitrary non-Manhattan layouts are outside the supported model.
+- Semantic and geometric checks are complementary. A missed object nearly
+  coplanar with a wall, such as a picture or curtain, can still contaminate
+  evidence.
+- Mixed illumination, reflections, sparse observations, and fine structures
+  can impair material identity, boundaries, or source-patch quality.
+- Footprint-aware synthesis targets texture-scale consistency; it does not
+  guarantee exact recovery of unseen patterns or physically measured PBR.
+  Predicted channels are appearance estimates.
+- The submission's material-count evaluation covers one- and two-material
+  surfaces; support for more identities is not equivalent to broad validation.
 
-- `unified_material_frontend/identity/identity_receipt.json`: proof of the
-  MatSeg identity-only contract.
-- `unified_material_frontend/final_trace/material_level_traceback.json`:
-  maximum-weight atlas selection and original-image trace-back provenance.
-- `pbr_full_normalized/`: final per-face PBR maps, preview, and scale/lattice
-  audits.
-- `unity_project/`: OBJ, MTL, BaseColor, normal, roughness, metallic,
-  Unity-packed metallic/smoothness, and an Editor importer.
-- `v3b_v3.unitypackage`: the importable Unity package.
-- `v3b_v3_end_to_end_manifest.json`: hashes linking the input-stage contracts
-  to the exported package.
+## Citation
 
-## Unity import
+The paper title is:
 
-In Unity, choose **Assets > Import Package > Custom Package** and select
-`v3b_v3.unitypackage`. The included Editor script configures BaseColor, normal,
-and packed metallic/smoothness maps, creates per-face materials, and writes
-`room_pbr.prefab`. It supports URP Lit, HDRP Lit, or the built-in Standard
-shader, selecting the first available option in that order. The same setup can
-be rerun from **Tools > v3b_v3 > Apply PBR**. Imported assets are placed under
-`Assets/v3b_v3`.
+> **V3B: Qualified Evidence Provenance for Empty-Room Reconstruction with
+> Multi-Material PBR Atlases**
 
-## Reproducibility and publication
+Publication details and a paper BibTeX entry will be added when publicly
+available. Until then, the following entry identifies the code repository
+without implying paper acceptance or publication:
 
-By default CHORD is rerun for every new trace-back image. Optional caches are
-accepted only when the complete input-image SHA-256 matches, and all five files
-(`input`, BaseColor, normal, roughness, metallic) are present.
+```bibtex
+@misc{v3b_code,
+  title        = {{V3B}: Qualified Evidence Provenance for Empty-Room Reconstruction with Multi-Material {PBR} Atlases},
+  howpublished = {\url{https://github.com/MisaKID1412/v3b_v3}},
+  note         = {Code repository, v3b_v3}
+}
+```
 
-The source tree is intended to be GitHub-ready: generated outputs, checkpoints,
-datasets, caches, machine-local configuration, and Unity packages are ignored.
-Run `bash check_release.sh` before publishing to verify the frozen algorithm
-hashes, script closure, source hygiene, and Unity archive builder.
-No project license is selected in this package; the repository owner must add
-the intended license before presenting it as open-source software.
+For reproducible use, also record the commit SHA and external checkpoint
+versions.
+
+## Acknowledgements and license
+
+V3B builds on Depth Anything 3, RoomFormer, SAM 3, MatSeg, CHORD, and
+IOPaint/LaMa. Please credit these projects and follow their respective licenses;
+upstream links are collected in [THIRD_PARTY.md](THIRD_PARTY.md).
+
+A project license has not yet been selected. Public repository access does not
+replace a license granting reuse or redistribution rights.
